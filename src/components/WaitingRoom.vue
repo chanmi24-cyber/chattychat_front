@@ -8,52 +8,48 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
-import SockJS from 'sockjs-client'
-import Stomp from 'stompjs'
+import { onMounted} from 'vue'
 
 const props = defineProps(['nickname'])
 const emit = defineEmits(['matched', 'leave'])
 
-let socket = null
-let stompClient = null
+let ws = null
 
 onMounted(() => {
   connect()
 })
 
-onUnmounted(() => {
-  disconnect()
-})
 
 const connect = () => {
-  socket = new SockJS('http://localhost:8080/chat')
-  stompClient = Stomp.over(socket)
+  ws = new WebSocket('ws://localhost:8080/chat')
 
-  stompClient.connect({}, () => {
-    stompClient.send('/app/chat', {}, JSON.stringify({
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
       type: 'ENTER',
       sender: props.nickname
     }))
+  }
 
-    stompClient.subscribe(`/topic/user/${props.nickname}`, (message) => {
-      const data = JSON.parse(message.body)
-      if (data.type === 'MATCHED') {
-        emit('matched', {
-          roomId: data.roomId,
-          partner: data.message
-        })
-      }
-    })
-  })
-}
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    if (data.type === 'MATCHED') {
+      emit('matched', {
+        roomId: data.roomId,
+        partner: data.message,
+        ws: ws
+      })
+    }
+  }
 
-const disconnect = () => {
-  if (stompClient) stompClient.disconnect()
+  ws.onerror = (error) => {
+    console.error('WebSocket 오류:', error)
+  }
 }
 
 const leave = () => {
-  disconnect()
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close()
+  }
   emit('leave')
 }
 </script>

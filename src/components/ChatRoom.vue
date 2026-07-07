@@ -31,54 +31,40 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import SockJS from 'sockjs-client'
-import Stomp from 'stompjs'
 
-const props = defineProps(['nickname', 'roomId', 'partner'])
+const props = defineProps(['nickname', 'roomId', 'partner', 'ws'])
 const emit = defineEmits(['wait', 'leave'])
 
 const messages = ref([])
 const input = ref('')
 const messageBox = ref(null)
 
-let socket = null
-let stompClient = null
-
 onMounted(() => {
-  connect()
-})
-
-onUnmounted(() => {
-  disconnect()
-})
-
-const connect = () => {
-  socket = new SockJS('http://localhost:8080/chat')
-  stompClient = Stomp.over(socket)
-
-  stompClient.connect({}, () => {
-    stompClient.subscribe(`/topic/room/${props.roomId}`, (message) => {
-      const data = JSON.parse(message.body)
+  if (props.ws) {
+    props.ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
       if (data.type === 'LEAVE') {
         messages.value.push({
           sender: '시스템',
           message: '상대방이 나갔습니다.'
         })
-      } else {
+      } else if (data.type === 'TALK') {
         messages.value.push(data)
+        scrollToBottom()
       }
-      scrollToBottom()
-    })
-  })
-}
+    }
+  }
+})
 
-const disconnect = () => {
-  if (stompClient) stompClient.disconnect()
-}
+onUnmounted(() => {
+  if (props.ws && props.ws.readyState === WebSocket.OPEN) {
+    props.ws.close()
+  }
+})
 
 const send = () => {
   if (!input.value.trim()) return
-  stompClient.send('/app/chat', {}, JSON.stringify({
+  props.ws.send(JSON.stringify({
     type: 'TALK',
     roomId: props.roomId,
     sender: props.nickname,
@@ -88,20 +74,19 @@ const send = () => {
 }
 
 const wait = () => {
-  stompClient.send('/app/chat', {}, JSON.stringify({
+  props.ws.send(JSON.stringify({
     type: 'WAIT',
     sender: props.nickname
   }))
-  disconnect()
   emit('wait')
 }
 
 const leave = () => {
-  stompClient.send('/app/chat', {}, JSON.stringify({
+  props.ws.send(JSON.stringify({
     type: 'LEAVE',
     sender: props.nickname
   }))
-  disconnect()
+  props.ws.close()
   emit('leave')
 }
 
